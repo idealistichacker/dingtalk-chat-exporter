@@ -131,6 +131,8 @@ data/exports/export_123456789_20260805_120000/
 
 未缓存到本地的附件不会被凭空下载，会以占位文本保留在导出结果中。
 
+首次下载某个导出目录时会在 `data/exports/` 中生成 ZIP 缓存；后续重复下载会直接复用缓存，不会再次压缩全部附件。
+
 ## 本地 API
 
 启动服务后可使用以下接口：
@@ -282,6 +284,8 @@ data/exports/export_123456789_20260805_120000/
 ```
 
 `export.json` includes `account_uid`, `export_type`, conversations, messages, and a normalized `content` field. Attachments that are not cached locally are represented by placeholder text rather than downloaded from DingTalk.
+
+The first download of an export creates a ZIP cache under `data/exports/`. Repeated downloads reuse that archive instead of compressing every attachment again.
 
 ### Local API
 
