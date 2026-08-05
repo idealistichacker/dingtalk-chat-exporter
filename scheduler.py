@@ -74,18 +74,16 @@ def finish_external_operation(error=None, reset_sync_history=False):
         _save_state()
 
 
-def do_sync(full=False):
+def do_sync(full=False, reserved=False):
     """Execute a sync cycle: decrypt -> export incremental -> update state."""
     global _sync_state
 
-    if _sync_state["is_syncing"]:
+    operation = "full_sync" if full else "manual_sync"
+    if not reserved and not begin_external_operation(operation):
         logger.warning("Sync already in progress, skipping")
         return False
 
-    _sync_state["is_syncing"] = True
-    _sync_state["last_error"] = None
-    _save_state()
-
+    conn = None
     try:
         logger.info("=== Starting sync cycle ===")
 
@@ -112,23 +110,33 @@ def do_sync(full=False):
         # Step 3: Update sync state
         latest_time = get_latest_message_time(conn)
         conn.close()
+        conn = None
 
-        _sync_state["last_sync_time"] = latest_time
-        _sync_state["last_sync_time_str"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        _sync_state["last_export_path"] = export_path
-        _sync_state["sync_count"] += 1
-        _sync_state["is_syncing"] = False
-
-        _save_state()
+        with _state_lock:
+            _sync_state["last_sync_time"] = latest_time
+            _sync_state["last_sync_time_str"] = datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            _sync_state["last_export_path"] = export_path
+            _sync_state["sync_count"] += 1
+            _sync_state["is_syncing"] = False
+            _sync_state["last_error"] = None
+            _sync_state["operation"] = None
+            _save_state()
         logger.info(f"=== Sync cycle complete (#{_sync_state['sync_count']}) ===")
         return True
 
     except Exception as e:
         logger.error(f"Sync failed: {e}", exc_info=True)
-        _sync_state["is_syncing"] = False
-        _sync_state["last_error"] = str(e)
-        _save_state()
+        with _state_lock:
+            _sync_state["is_syncing"] = False
+            _sync_state["last_error"] = str(e)
+            _sync_state["operation"] = None
+            _save_state()
         return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def setup_scheduler(app=None):

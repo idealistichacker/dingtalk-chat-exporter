@@ -216,6 +216,10 @@ class DecryptionReplacementTests(unittest.TestCase):
                         target.write(frame_header)
                         target.write(encryptor.update(page))
                     encryptor.finalize()
+                # Simulate copying while DingTalk is appending the next WAL frame.
+                with open(encrypted + "-wal", "ab") as target:
+                    target.write(b"\x00" * decrypt.WAL_FRAME_HEADER_SIZE)
+                    target.write(b"\x00" * 512)
             finally:
                 conn.close()
 

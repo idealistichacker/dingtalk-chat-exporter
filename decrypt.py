@@ -158,10 +158,16 @@ def _decrypt_v3_wal(input_path, output_path, key):
             if not frame_header:
                 break
             if len(frame_header) != WAL_FRAME_HEADER_SIZE:
-                raise RuntimeError("Encrypted V3 WAL has a truncated frame header")
+                logger.warning(
+                    "Ignoring an incomplete V3 WAL frame header copied during an active write"
+                )
+                break
             page = source.read(page_size)
             if len(page) != page_size:
-                raise RuntimeError("Encrypted V3 WAL has a truncated page")
+                logger.warning(
+                    "Ignoring an incomplete V3 WAL page copied during an active write"
+                )
+                break
             page = _decrypt_ecb_bytes(page, decryptor)
             checksum_1, checksum_2 = _wal_checksum(
                 bytes(frame_header[:8]) + page,

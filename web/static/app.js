@@ -520,11 +520,17 @@ async function loadSyncStatus() {
         const state = await apiGet('/api/sync/status');
         const el = document.getElementById('syncStatus');
         if (state.is_syncing) {
-            el.textContent = '同步中...';
+            el.textContent = state.operation === 'full_sync' ? '全量导出中...' : '同步中...';
+            el.title = '';
+        } else if (state.last_error) {
+            el.textContent = '同步失败';
+            el.title = state.last_error;
         } else if (state.last_sync_time_str) {
             el.textContent = `上次同步: ${state.last_sync_time_str}`;
+            el.title = '';
         } else {
             el.textContent = '尚未同步';
+            el.title = '';
         }
     } catch (e) {
         document.getElementById('syncStatus').textContent = '状态未知';
@@ -548,10 +554,14 @@ async function triggerSync() {
                     clearInterval(poll);
                     btn.disabled = false;
                     btn.textContent = '手动同步';
-                    loadSyncStatus();
-                    // Reload conversations if we have one selected
-                    if (state.currentCid) {
-                        loadMessages();
+                    await loadSyncStatus();
+                    if (s.last_error) {
+                        alert('同步失败: ' + s.last_error);
+                    } else {
+                        await loadConversations(true);
+                        if (state.currentCid) {
+                            loadMessages();
+                        }
                     }
                 }
             } catch (e) {}

@@ -176,14 +176,22 @@ async def api_sync_status():
 
 @app.post("/api/sync/trigger")
 async def api_sync_trigger(full: bool = Query(False)):
-    state = get_sync_state()
-    if state.get("is_syncing"):
+    operation = "full_sync" if full else "manual_sync"
+    if not begin_external_operation(operation):
         raise HTTPException(status_code=409, detail="Sync already in progress")
 
     # Run sync in background thread to avoid blocking
     import threading
-    thread = threading.Thread(target=do_sync, kwargs={"full": full}, daemon=True)
-    thread.start()
+    try:
+        thread = threading.Thread(
+            target=do_sync,
+            kwargs={"full": full, "reserved": True},
+            daemon=True,
+        )
+        thread.start()
+    except Exception as exc:
+        finish_external_operation(error=exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "started", "full": full}
 
