@@ -82,7 +82,30 @@ def process_all_attachments(messages, export_dir):
 
     Returns stats dict with counts.
     """
-    stats = {"images": 0, "files": 0, "skipped": 0, "errors": 0}
+    stats = {"images": 0, "files": 0, "skipped": 0, "errors": 0, "deduplicated": 0}
+    exported_sources = {}
+
+    def export_file(src_path, requested_path):
+        """Copy a source once per export and return its actual relative path."""
+        source_key = os.path.normcase(os.path.abspath(src_path))
+        cached_path = exported_sources.get(source_key)
+        if cached_path:
+            stats["deduplicated"] += 1
+            return cached_path
+
+        export_path = requested_path
+        if os.path.exists(export_path):
+            stem, ext = os.path.splitext(export_path)
+            suffix = 1
+            while os.path.exists(export_path):
+                export_path = f"{stem}_{suffix}{ext}"
+                suffix += 1
+        if not copy_attachment_to_export(src_path, export_path):
+            return None
+
+        relative_path = os.path.relpath(export_path, export_dir).replace("\\", "/")
+        exported_sources[source_key] = relative_path
+        return relative_path
 
     for msg in messages:
         ct = msg.get("content_type", 0)
@@ -93,7 +116,7 @@ def process_all_attachments(messages, export_dir):
             exported_img_paths = []
             for idx, img in enumerate(img_info["images"]):
                 local_path = img.get("local_path", "")
-                if not local_path or not os.path.exists(local_path):
+                if not local_path or not os.path.isfile(local_path):
                     exported_img_paths.append(None)
                     stats["skipped"] += 1
                     continue
@@ -102,8 +125,8 @@ def process_all_attachments(messages, export_dir):
                 if len(img_info["images"]) > 1:
                     name, ext = os.path.splitext(export_path)
                     export_path = f"{name}_{idx}{ext}"
-                if copy_attachment_to_export(local_path, export_path):
-                    rel_path = os.path.relpath(export_path, export_dir).replace("\\", "/")
+                rel_path = export_file(local_path, export_path)
+                if rel_path:
                     exported_img_paths.append(rel_path)
                     stats["images"] += 1
                 else:
@@ -119,12 +142,11 @@ def process_all_attachments(messages, export_dir):
         elif ct == config.CONTENT_TYPE_IMAGE:
             # Fallback: single image without images list
             local_path = img_info.get("local_path", "") if img_info else ""
-            if local_path and os.path.exists(local_path):
+            if local_path and os.path.isfile(local_path):
                 export_path = get_attachment_export_path(msg, {}, export_dir)
-                if copy_attachment_to_export(local_path, export_path):
-                    msg["attachment_export_path"] = os.path.relpath(
-                        export_path, export_dir
-                    ).replace("\\", "/")
+                rel_path = export_file(local_path, export_path)
+                if rel_path:
+                    msg["attachment_export_path"] = rel_path
                     stats["images"] += 1
                 else:
                     stats["errors"] += 1
@@ -147,10 +169,13 @@ def process_all_attachments(messages, export_dir):
                 mid = msg.get("id", "unknown")
                 export_path = f"{name}_{mid}{ext}"
 
-            if copy_attachment_to_export(src, export_path):
-                att["export_path"] = os.path.relpath(
-                    export_path, export_dir
-                ).replace("\\", "/")
+            if not os.path.isfile(src):
+                stats["errors"] += 1
+                continue
+
+            rel_path = export_file(src, export_path)
+            if rel_path:
+                att["export_path"] = rel_path
                 stats["files"] += 1
             else:
                 stats["errors"] += 1

@@ -5,7 +5,14 @@ import logging
 from datetime import datetime
 
 import config
-from parser import get_connection, get_conversations, get_messages, get_new_messages, _format_timestamp
+from parser import (
+    _find_msg_table,
+    _format_timestamp,
+    get_connection,
+    get_conversations,
+    get_messages,
+    get_new_messages,
+)
 from attachment import process_all_attachments
 
 logger = logging.getLogger(__name__)
@@ -53,6 +60,7 @@ def export_all(base_dir=None, batch_size=500):
 
     # Collect raw message dicts for attachment processing
     all_raw_messages = []
+    messages_by_cid = {}
 
     for idx, conv in enumerate(convs_result["conversations"]):
         cid = conv["cid"]
@@ -65,17 +73,20 @@ def export_all(base_dir=None, batch_size=500):
         }
 
         # Fetch all messages for this conversation
+        table = _find_msg_table(conn, cid)
         offset = 0
         while True:
-            result = get_messages(conn, cid, limit=batch_size, offset=offset)
-            all_raw_messages.extend(result["messages"])
+            result = get_messages(
+                conn, cid, limit=batch_size, offset=offset, table=table
+            )
+            messages = result["messages"]
+            all_raw_messages.extend(messages)
+            messages_by_cid.setdefault(cid, []).extend(messages)
             if offset + batch_size >= result["total"]:
                 break
             offset += batch_size
 
-        conv_data["message_count"] = len(
-            [m for m in all_raw_messages if m["cid"] == cid]
-        )
+        conv_data["message_count"] = len(messages_by_cid.get(cid, []))
         export_data["conversations"].append(conv_data)
 
         if (idx + 1) % 50 == 0:
@@ -86,18 +97,10 @@ def export_all(base_dir=None, batch_size=500):
     stats = process_all_attachments(all_raw_messages, export_dir)
     logger.info(f"Attachment stats: {stats}")
 
-    # Serialize messages into conversation groups
-    msg_by_cid = {}
-    for msg in all_raw_messages:
-        cid = msg["cid"]
-        if cid not in msg_by_cid:
-            msg_by_cid[cid] = []
-        msg_by_cid[cid].append(msg)
-
     for conv_data in export_data["conversations"]:
         cid = conv_data["conversation_id"]
         conv_data["messages"] = [
-            _serialize_message(m) for m in msg_by_cid.get(cid, [])
+            _serialize_message(m) for m in messages_by_cid.get(cid, [])
         ]
 
     json_path = _write_export_json(export_data, export_dir)
@@ -330,9 +333,17 @@ def export_by_cids(cids, base_dir=None, batch_size=500, since_time=None):
             "messages": [],
         }
 
+        table = _find_msg_table(conn, cid)
         offset = 0
         while True:
-            result = get_messages(conn, cid, limit=batch_size, offset=offset, since_time=since_time)
+            result = get_messages(
+                conn,
+                cid,
+                limit=batch_size,
+                offset=offset,
+                since_time=since_time,
+                table=table,
+            )
             all_raw_messages.extend(result["messages"])
             if offset + batch_size >= result["total"]:
                 break

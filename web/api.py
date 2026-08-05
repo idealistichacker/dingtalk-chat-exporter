@@ -1,5 +1,7 @@
 import os
 import logging
+import tempfile
+import zipfile
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -280,9 +282,6 @@ async def api_local_file(path: str = Query(..., min_length=1)):
 @app.get("/api/exports/{name}/download")
 async def api_export_download(name: str):
     """Download an export as a zip file."""
-    import zipfile
-    import tempfile
-    import io as _io
 
     export_path = os.path.join(config.EXPORT_DIR, name)
     export_path = os.path.normpath(export_path)
@@ -294,22 +293,48 @@ async def api_export_download(name: str):
     # If it's a directory, zip it
     if os.path.isdir(export_path):
         zip_filename = f"{name}.zip"
-        # Create zip in memory
-        buf = _io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(export_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, config.EXPORT_DIR)
-                    zf.write(file_path, arcname)
-        buf.seek(0)
+        zip_path = os.path.join(config.EXPORT_DIR, zip_filename)
+        if not os.path.isfile(zip_path):
+            fd, temp_zip = tempfile.mkstemp(
+                prefix=f".{name}_", suffix=".zip.tmp", dir=config.EXPORT_DIR
+            )
+            os.close(fd)
+            try:
+                # Store formats that are already compressed; deflate JSON/text lightly.
+                stored_extensions = {
+                    ".7z", ".avi", ".bmp", ".docx", ".gif", ".gz", ".jpeg",
+                    ".jpg", ".m4a", ".mp3", ".mp4", ".pdf", ".png", ".rar",
+                    ".wav", ".webp", ".xls", ".xlsx", ".zip",
+                }
+                with zipfile.ZipFile(
+                    temp_zip,
+                    "w",
+                    compression=zipfile.ZIP_DEFLATED,
+                    compresslevel=1,
+                    allowZip64=True,
+                ) as archive:
+                    for root, _, files in os.walk(export_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, config.EXPORT_DIR)
+                            compression = (
+                                zipfile.ZIP_STORED
+                                if os.path.splitext(file)[1].lower() in stored_extensions
+                                else zipfile.ZIP_DEFLATED
+                            )
+                            archive.write(
+                                file_path,
+                                arcname,
+                                compress_type=compression,
+                                compresslevel=1,
+                            )
+                os.replace(temp_zip, zip_path)
+            finally:
+                if os.path.exists(temp_zip):
+                    os.remove(temp_zip)
 
-        from fastapi.responses import StreamingResponse
-        return StreamingResponse(
-            buf,
-            media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename={zip_filename}"},
-        )
+        # FileResponse streams from disk instead of buffering the entire archive.
+        return FileResponse(zip_path, media_type="application/zip", filename=zip_filename)
 
     # If it's a single file (legacy JSON export)
     return FileResponse(

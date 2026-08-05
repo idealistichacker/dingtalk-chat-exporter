@@ -143,9 +143,17 @@ def _get_all_msg_tables():
     return [f"tbmsg_{i:03d}" for i in range(128)]
 
 
-def get_messages(conn, cid, limit=50, offset=0, since_time=None, until_time=None):
+def get_messages(
+    conn,
+    cid,
+    limit=50,
+    offset=0,
+    since_time=None,
+    until_time=None,
+    table=None,
+):
     """Get messages for a conversation with pagination and time filtering."""
-    table = _find_msg_table(conn, cid)
+    table = table or _find_msg_table(conn, cid)
     if not table:
         return {"total": 0, "messages": []}
 
