@@ -89,6 +89,7 @@ def _dingtalk_search_bases():
     home = os.path.expanduser("~")
     if sys.platform == "darwin":
         search_bases.append(os.path.join(home, "Library", "Application Support", "DingTalk"))
+        search_bases.append(os.path.join(home, "Library", "Application Support", "DingTalkMac"))
     elif sys.platform.startswith("linux"):
         search_bases.append(os.path.join(home, ".config", "DingTalk"))
         search_bases.append(os.path.join(home, ".local", "share", "DingTalk"))
